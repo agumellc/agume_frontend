@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Card,
   Descriptions,
@@ -11,16 +11,24 @@ import {
   message,
   Dropdown,
   Steps,
+  Modal,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   FilePdfOutlined,
   PrinterOutlined,
   SwapOutlined,
+  DownloadOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useRouter, useParams, usePathname } from 'next/navigation';
 import { ordersApi } from '@/lib/api';
 import PageHeader from '../../components/PageHeader';
+import { InvoicePdfTemplate, type OrderForPdf } from '../components/InvoicePdfTemplate';
+import { VoucherPdfTemplate } from '../components/VoucherPdfTemplate';
+import { exportElementToPdf } from '../utils/pdfFromHtml';
+import { companySettingsToInvoiceInfo, defaultInvoiceCompany } from '../config/invoiceCompany';
+import { configApi } from '@/lib/api';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'orange',
@@ -40,12 +48,43 @@ const STATUS_LABELS: Record<string, string> = {
 
 const ORDER_PROGRESS_STEPS = ['pending', 'processing', 'delivering', 'delivered'] as const;
 
+type PdfType = 'invoice' | 'voucher' | null;
+
 export default function OrderDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = Number(params.id);
   const [order, setOrder] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pdfType, setPdfType] = useState<PdfType>(null);
+  const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
+  const [invoiceCompany, setInvoiceCompany] = useState<ReturnType<typeof companySettingsToInvoiceInfo> | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!invoicePreviewOpen) return;
+    configApi
+      .getCompany()
+      .then(({ data }) => setInvoiceCompany(companySettingsToInvoiceInfo(data)))
+      .catch(() => setInvoiceCompany(defaultInvoiceCompany));
+  }, [invoicePreviewOpen]);
+
+  const invoiceOrder: OrderForPdf | null = order
+    ? {
+        order_number: order.order_number as string | undefined,
+        order_date: order.order_date as string | undefined,
+        customer_name: order.customer_name as string | undefined,
+        customer_code: order.customer_code as string | undefined,
+        customer_phone: order.customer_phone as string | undefined,
+        customer_address: order.customer_address as string | undefined,
+        customer_register_number: order.customer_register_number as string | undefined,
+        customer_tax_id: order.customer_tax_id as string | undefined,
+        customer_account_number: order.customer_account_number as string | undefined,
+        total_amount: order.total_amount as number | undefined,
+        items: order.items as OrderForPdf['items'],
+      }
+    : null;
 
   useEffect(() => {
     if (!id) return;
@@ -56,6 +95,26 @@ export default function OrderDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  useEffect(() => {
+    if (!pdfType || !order || !pdfContainerRef.current) return;
+    const el = pdfContainerRef.current.firstElementChild as HTMLElement | null;
+    if (!el) return;
+    const orderNumber = String(order.order_number ?? id);
+    const filename = pdfType === 'invoice' ? `invoice_${orderNumber}.pdf` : `voucher_${orderNumber}.pdf`;
+    const run = async () => {
+      try {
+        await exportElementToPdf(el, filename);
+        message.success('PDF татагдлаа');
+      } catch (e) {
+        message.error('PDF үүсгэхэд алдаа гарлаа');
+      } finally {
+        setPdfType(null);
+      }
+    };
+    const t = setTimeout(run, 100);
+    return () => clearTimeout(t);
+  }, [pdfType, order, id]);
+
   const updateStatus = async (status: string) => {
     try {
       await ordersApi.updateStatus(id, status);
@@ -64,6 +123,20 @@ export default function OrderDetailPage() {
       message.success('Статус шинэчлэгдлээ');
     } catch {
       message.error('Статус солиход алдаа гарлаа');
+    }
+  };
+
+  const handleSendInvoiceEmail = async () => {
+    const email = (order?.customer_email as string)?.trim?.();
+    setSendingEmail(true);
+    try {
+      await ordersApi.sendInvoiceEmail(id, email || undefined);
+      message.success('И-мэйл амжилттай илгээгдлээ.');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail || 'И-мэйл илгээхэд алдаа гарлаа.');
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -142,14 +215,14 @@ export default function OrderDetailPage() {
               <Button
                 type="primary"
                 icon={<FilePdfOutlined />}
-                onClick={() => ordersApi.openInvoicePdf(id)}
+                onClick={() => setInvoicePreviewOpen(true)}
                 style={{ background: '#25671E' }}
               >
-                Нэхэмжлэх PDF
+                Нэхэмжлэх
               </Button>
               <Button
                 icon={<FilePdfOutlined />}
-                onClick={() => ordersApi.openVoucherPdf(id)}
+                onClick={() => setPdfType('voucher')}
               >
                 Зарлагийн баримт
               </Button>
@@ -227,6 +300,90 @@ export default function OrderDetailPage() {
           )}
         />
       </Card>
+
+      {/* Нэхэмжлэх preview modal */}
+      <Modal
+        title="Нэхэмжлэх - Урьдчилан харах"
+        open={invoicePreviewOpen}
+        onCancel={() => setInvoicePreviewOpen(false)}
+        width="90%"
+        style={{ maxWidth: 800 }}
+        footer={[
+          <Button key="close" onClick={() => setInvoicePreviewOpen(false)}>
+            Хаах
+          </Button>,
+          <Button
+            key="email"
+            icon={<MailOutlined />}
+            loading={sendingEmail}
+            onClick={handleSendInvoiceEmail}
+          >
+            И-мэйлээр илгээх
+          </Button>,
+          <Button
+            key="download"
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={() => {
+              setInvoicePreviewOpen(false);
+              setPdfType('invoice');
+            }}
+            style={{ background: '#25671E' }}
+          >
+            PDF татах
+          </Button>,
+        ]}
+      >
+        <div
+          style={{
+            maxHeight: '70vh',
+            overflow: 'auto',
+            padding: 8,
+            backgroundColor: '#f5f5f5',
+            borderRadius: 8,
+          }}
+        >
+          {invoiceOrder && (
+            <InvoicePdfTemplate
+              order={invoiceOrder}
+              company={invoiceCompany ?? defaultInvoiceCompany}
+            />
+          )}
+        </div>
+      </Modal>
+
+      {/* Hidden container for HTML → PDF (off-screen render) */}
+      <div
+        ref={pdfContainerRef}
+        style={{
+          position: 'fixed',
+          left: -9999,
+          top: 0,
+          width: '210mm',
+          zIndex: -1,
+          pointerEvents: 'none',
+        }}
+        aria-hidden
+      >
+        {pdfType === 'invoice' && invoiceOrder && (
+          <InvoicePdfTemplate
+            order={invoiceOrder}
+            company={invoiceCompany ?? defaultInvoiceCompany}
+          />
+        )}
+        {pdfType === 'voucher' && order && (
+          <VoucherPdfTemplate
+            order={{
+              order_number: order.order_number as string,
+              order_date: order.order_date as string,
+              customer_name: order.customer_name as string,
+              driver_name: order.driver_name as string,
+              total_amount: order.total_amount as number,
+              items: (order.items as Record<string, unknown>[]) ?? [],
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

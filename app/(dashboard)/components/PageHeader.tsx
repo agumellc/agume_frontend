@@ -1,15 +1,13 @@
 'use client';
 
-import { Breadcrumb } from 'antd';
-import Link from 'next/link';
 import { getBreadcrumbForPath } from '@/lib/breadcrumb';
 
 export interface PageHeaderProps {
-  /** Breadcrumb items — өгөхгүй бол pathname-аар автоматаар тодорхойлно */
+  /** Breadcrumb items — өгөхгүй бол pathname-аар автоматаар тодорхойлно (зөвхөн сүүлчийн title ашиглагдана) */
   items?: { title: string; href?: string }[];
   /** Одоогийн pathname (items өгөхгүй үед ашиглана) */
   pathname?: string;
-  /** Хуудасны гарчиг */
+  /** Хуудасны гарчиг — өгөхгүй бол breadcrumb-ийн сүүлчийн зүйлээс авна */
   title?: string;
   /** Тайлбар (жижиг саарал текст) */
   description?: string;
@@ -19,17 +17,12 @@ export interface PageHeaderProps {
 
 export default function PageHeader({ items, pathname, title, description, extra }: PageHeaderProps) {
   const breadcrumbItems = items ?? (pathname ? getBreadcrumbForPath(pathname) : []);
+  const pageTitle = title ?? breadcrumbItems[breadcrumbItems.length - 1]?.title ?? '';
 
   return (
     <header className={`agume-page-header${extra ? ' agume-page-header-with-extra' : ''}`}>
       <div className="agume-page-header-left">
-        <Breadcrumb
-          className="agume-breadcrumb"
-          items={breadcrumbItems.map((item) => ({
-            title: item.href ? <Link href={item.href}>{item.title}</Link> : item.title,
-          }))}
-        />
-        {title && <h1 className="agume-page-title">{title}</h1>}
+        {pageTitle ? <h1 className="agume-page-title">{pageTitle}</h1> : null}
         {description && <p className="agume-page-description">{description}</p>}
       </div>
       {extra && <div className="agume-page-header-extra">{extra}</div>}

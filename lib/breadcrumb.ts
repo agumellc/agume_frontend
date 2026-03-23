@@ -21,6 +21,7 @@ const BREADCRUMB_CONFIG: { pattern: RegExp | string; items: BreadcrumbItem[] }[]
   { pattern: /^\/employees\/?$/, items: [{ title: 'Нүүр', href: '/dashboard' }, { title: 'Ажилтан' }] },
   { pattern: /^\/reports\/?$/, items: [{ title: 'Нүүр', href: '/dashboard' }, { title: 'Тайлан' }] },
   { pattern: /^\/reports\/products\/?$/, items: [{ title: 'Нүүр', href: '/dashboard' }, { title: 'Тайлан', href: '/reports' }, { title: 'Барааны тайлан' }] },
+  { pattern: /^\/settings\/?$/, items: [{ title: 'Нүүр', href: '/dashboard' }, { title: 'Тохиргоо' }] },
   { pattern: /^\/log\/activity\/?$/, items: [{ title: 'Нүүр', href: '/dashboard' }, { title: 'Log', href: '/log/activity' }, { title: 'Үйлдэлийн түүх' }] },
   { pattern: /^\/log\/login\/?$/, items: [{ title: 'Нүүр', href: '/dashboard' }, { title: 'Log', href: '/log/activity' }, { title: 'Нэвтрэлтийн түүх' }] },
 ];

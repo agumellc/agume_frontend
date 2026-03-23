@@ -283,7 +283,7 @@ export default function NewOrderPage() {
     {
       title: 'Үнэ',
       width: 110,
-      align: 'right',
+      align: 'right' as const,
       render: (_: unknown, row: OrderItemRow) => {
         const total = (Number(row.quantity) || 0) * (Number(row.unit_price) || 0);
         return total.toLocaleString('mn-MN') + ' ₮';

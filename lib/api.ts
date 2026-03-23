@@ -87,6 +87,9 @@ export const ordersApi = {
     const url = URL.createObjectURL(data as Blob);
     window.open(url);
   },
+  /** Send invoice PDF to customer email (or optional email). */
+  sendInvoiceEmail: (id: number, email?: string) =>
+    api.post(`/orders/${id}/send_invoice_email/`, email != null && email.trim() !== '' ? { email: email.trim() } : {}),
 };
 
 export const productsApi = {
@@ -113,12 +116,38 @@ export const employeesApi = {
   delete: (id: number) => api.delete(`/employees/${id}/`),
 };
 
+export interface AuthUser {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+}
+
 export const authApi = {
   login: (username: string, password: string) =>
     api.post('/auth/login/', { username, password }),
+  /** Current Django auth user (first_name, last_name, username). */
+  me: () => api.get<AuthUser>('/auth/me/'),
 };
 
 export const logsApi = {
   activity: (params?: Record<string, string>) => api.get<{ results?: Record<string, unknown>[] }>('/logs/activity/', { params }),
   login: (params?: Record<string, string>) => api.get<{ results?: Record<string, unknown>[] }>('/logs/login/', { params }),
+};
+
+export interface CompanySettings {
+  id?: number;
+  name: string;
+  register_number: string;
+  address: string;
+  phone: string;
+  email: string;
+  bank_name: string;
+  bank_account: string;
+  bank_code: string;
+}
+
+export const configApi = {
+  getCompany: () => api.get<CompanySettings>('/config/company/'),
+  updateCompany: (data: Partial<CompanySettings>) => api.patch<CompanySettings>('/config/company/', data),
 };

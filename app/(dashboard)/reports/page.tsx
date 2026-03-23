@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Card, DatePicker, Button, Table, Statistic, message } from 'antd';
 import { FileExcelOutlined, BarChartOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -10,6 +10,8 @@ import { ordersApi } from '@/lib/api';
 import PageHeader from '../components/PageHeader';
 
 const baseURL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:8000';
+
+type OrderRow = { id?: number; order_number?: string; customer_name?: string; status_display?: string; items_count?: number; total_amount?: number };
 
 export default function ReportsPage() {
   const [selectedDate, setSelectedDate] = useState(dayjs());
@@ -20,7 +22,7 @@ export default function ReportsPage() {
     by_status?: Record<string, number>;
     customers_count: number;
   } | null>(null);
-  const [orders, setOrders] = useState<unknown[]>([]);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   const dateStr = selectedDate.format('YYYY-MM-DD');
@@ -40,7 +42,7 @@ export default function ReportsPage() {
   const fetchOrders = async () => {
     try {
       const { data } = await ordersApi.list({ date: dateStr });
-      setOrders(data.results || data);
+      setOrders((data.results ?? data) as OrderRow[]);
     } catch {
       setOrders([]);
     }
@@ -73,6 +75,7 @@ export default function ReportsPage() {
   };
 
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <div>
@@ -130,16 +133,50 @@ export default function ReportsPage() {
           rowKey="id"
           dataSource={orders}
           loading={loading}
+          onRow={(record: OrderRow) => ({
+            style: { cursor: 'pointer' },
+            onClick: () => record?.id != null && router.push(`/orders/${record.id}`),
+          })}
           columns={[
-            { title: 'Дугаар', dataIndex: 'order_number', width: 140 },
-            { title: 'Харилцагч', dataIndex: 'customer_name' },
-            { title: 'Статус', dataIndex: 'status_display', width: 130 },
+            {
+              title: 'Дугаар',
+              dataIndex: 'order_number',
+              key: 'order_number',
+              width: 180,
+              render: (v: unknown) => (
+                <span style={{ whiteSpace: 'nowrap' }}>{v != null ? String(v) : '–'}</span>
+              ),
+            },
+            {
+              title: 'Харилцагч',
+              dataIndex: 'customer_name',
+              key: 'customer_name',
+              width: 200,
+              ellipsis: true,
+              render: (v: unknown) => (v != null ? String(v) : '–'),
+            },
+            {
+              title: 'Статус',
+              dataIndex: 'status_display',
+              key: 'status_display',
+              width: 140,
+              render: (v: unknown) => (v != null ? String(v) : '–'),
+            },
+            {
+              title: 'Барааны тоо',
+              dataIndex: 'items_count',
+              key: 'items_count',
+              width: 110,
+              align: 'right',
+              render: (v: unknown) => (v != null && v !== '' ? Number(v).toLocaleString() : '0'),
+            },
             {
               title: 'Нийт дүн',
               dataIndex: 'total_amount',
-              width: 120,
+              key: 'total_amount',
+              width: 130,
               align: 'right',
-              render: (v: number) => (v != null ? `${Number(v).toLocaleString()} ₮` : '-'),
+              render: (v: number) => (v != null ? `${Number(v).toLocaleString()} ₮` : '–'),
             },
           ]}
           pagination={{ pageSize: 20 }}

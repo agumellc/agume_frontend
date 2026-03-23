@@ -4,22 +4,14 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Table,
   Button,
-  Space,
   Tag,
   Input,
   Select,
   DatePicker,
-  Dropdown,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import {
-  PlusOutlined,
-  FileExcelOutlined,
-  SearchOutlined,
-  EyeOutlined,
-  FilePdfOutlined,
-} from '@ant-design/icons';
+import { PlusOutlined, FileExcelOutlined, SearchOutlined } from '@ant-design/icons';
 import { useRouter, usePathname } from 'next/navigation';
 import dayjs from 'dayjs';
 import PageHeader from '../components/PageHeader';
@@ -216,51 +208,6 @@ export default function OrdersPage() {
         sortDirections: ['ascend', 'descend'],
         render: (v: unknown) =>
           v != null && v !== '' ? `${Number(v).toLocaleString('mn-MN')} ₮` : '–',
-      },
-      {
-        title: 'Үйлдэл',
-        key: 'actions',
-        width: 160,
-        fixed: 'right',
-        render: (_: unknown, record: OrderRow) => {
-          const id = record.id as number;
-          return (
-            <Space
-              size="small"
-              wrap={false}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Button
-                type="link"
-                size="small"
-                icon={<EyeOutlined />}
-                onClick={() => router.push(`/orders/${id}`)}
-              >
-                Дэлгэрэнгүй
-              </Button>
-              <Dropdown
-                menu={{
-                  items: [
-                    {
-                      key: 'invoice',
-                      icon: <FilePdfOutlined />,
-                      label: 'Нэхэмжлэх PDF',
-                      onClick: () => ordersApi.openInvoicePdf(id),
-                    },
-                    {
-                      key: 'voucher',
-                      icon: <FilePdfOutlined />,
-                      label: 'Зарлагийн баримт',
-                      onClick: () => ordersApi.openVoucherPdf(id),
-                    },
-                  ],
-                }}
-              >
-                <Button size="small" icon={<FilePdfOutlined />}>PDF</Button>
-              </Dropdown>
-            </Space>
-          );
-        },
       },
     ],
     [router]

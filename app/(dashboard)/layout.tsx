@@ -9,6 +9,7 @@ import {
   TeamOutlined,
   UserOutlined,
   BarChartOutlined,
+  SettingOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   LogoutOutlined,
@@ -22,6 +23,8 @@ import Link from 'next/link';
 import dayjs from 'dayjs';
 import 'dayjs/locale/mn';
 import { useTheme } from '@/app/ThemeProvider';
+import { ToastProvider } from './components/ToastContext';
+import { authApi, type AuthUser } from '@/lib/api';
 
 dayjs.locale('mn');
 
@@ -34,20 +37,13 @@ const MAIN_NAV_ITEMS: { key: string; icon: React.ReactNode; label: string; href:
   { key: '/customers', icon: <TeamOutlined />, label: 'Харилцагч', href: '/customers' },
   { key: '/employees', icon: <UserOutlined />, label: 'Ажилтан', href: '/employees' },
   { key: '/reports', icon: <BarChartOutlined />, label: 'Тайлан', href: '/reports' },
+  { key: '/settings', icon: <SettingOutlined />, label: 'Тохиргоо', href: '/settings' },
 ];
 
-function getUsernameFromToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  const stored = localStorage.getItem('user_username');
-  if (stored) return stored;
-  try {
-    const token = localStorage.getItem('access_token');
-    if (!token) return null;
-    const payload = JSON.parse(atob(token.split('.')[1] || '{}'));
-    return payload.username ?? payload.sub ?? null;
-  } catch {
-    return null;
-  }
+function getDisplayName(user: AuthUser | null): string {
+  if (!user) return 'Нэвтэрсэн хэрэглэгч';
+  const full = [user.first_name, user.last_name].filter(Boolean).join(' ').trim();
+  return full || user.username || 'Нэвтэрсэн хэрэглэгч';
 }
 
 export default function DashboardLayout({
@@ -56,20 +52,41 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const { isDark, toggleTheme } = useTheme();
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('access_token')) {
+    if (typeof window === 'undefined') return;
+    if (!localStorage.getItem('access_token')) {
       router.push('/login');
+      return;
     }
+    authApi.me()
+      .then(({ data }) => setAuthUser(data))
+      .catch((err) => {
+        // Fallback: show username from localStorage if /api/auth/me/ fails (e.g. CORS, 404)
+        const username = localStorage.getItem('user_username');
+        if (username) {
+          setAuthUser({
+            id: 0,
+            username,
+            first_name: '',
+            last_name: '',
+          });
+        }
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('auth/me failed:', err?.response?.status, err?.message);
+        }
+      });
   }, [router]);
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user_username');
+    setAuthUser(null);
     router.push('/login');
   };
 
@@ -82,18 +99,20 @@ export default function DashboardLayout({
     const longest = matched.sort((a, b) => b.length - a.length)[0];
     return longest ?? path;
   })();
-  const sidebarUsername = getUsernameFromToken();
+  const displayName = getDisplayName(authUser);
+  const sidebarUsername = displayName;
 
   return (
-    <Layout className="agume-dashboard-layout" style={{ minHeight: '100vh' }}>
-      <Sider
+    <ToastProvider>
+      <Layout className="agume-dashboard-layout" style={{ minHeight: '100vh' }}>
+        <Sider
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
         trigger={null}
         width={248}
         collapsedWidth={80}
-        className="agume-sidebar agume-sidebar-fixed"
+        className="agume-sidebar agume-sidebar-fixed agume-sidebar-light"
         style={{
           background: 'var(--agume-sidebar-bg)',
           overflow: 'hidden',
@@ -153,7 +172,7 @@ export default function DashboardLayout({
           {!collapsed && (
             <>
               <div className="agume-sidebar-footer-user">
-                <Avatar size="small" style={{ background: 'var(--agume-sidebar-active-border)' }} icon={<UserOutlined />} />
+                <Avatar size="small" style={{ background: 'var(--green-600)' }} icon={<UserOutlined />} />
                 <span className="agume-sidebar-footer-username">{sidebarUsername || 'Нэвтэрсэн хэрэглэгч'}</span>
               </div>
               <div className="agume-sidebar-footer-log">
@@ -172,7 +191,7 @@ export default function DashboardLayout({
           {collapsed && (
             <Tooltip title={sidebarUsername || 'Нэвтэрсэн'} placement="right">
               <div className="agume-sidebar-footer-user-collapsed">
-                <Avatar size="small" style={{ background: 'var(--agume-sidebar-active-border)' }} icon={<UserOutlined />} />
+                <Avatar size="small" style={{ background: 'var(--green-600)' }} icon={<UserOutlined />} />
               </div>
             </Tooltip>
           )}
@@ -188,34 +207,36 @@ export default function DashboardLayout({
         }}
       >
         <Header className="agume-header">
-          <div className="agume-header-left">
-            <button
-              type="button"
-              onClick={() => setCollapsed(!collapsed)}
-              className="agume-header-trigger"
-              aria-label={collapsed ? 'Цэсийг нээх' : 'Цэсийг хаах'}
-            >
-              {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            </button>
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            className="agume-header-trigger agume-header-trigger--collapse"
+            aria-label={collapsed ? 'Цэсийг нээх' : 'Цэсийг хаах'}
+          >
+            {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          </button>
+          <div className="agume-header-search-wrap">
             <Input
               placeholder="Хайх..."
-              prefix={<SearchOutlined style={{ color: 'var(--agume-text-tertiary)' }} />}
+              prefix={<SearchOutlined className="agume-header-search-icon" />}
               className="agume-header-search"
               allowClear
               bordered={false}
             />
+            <span className="agume-header-search-shortcut">⌘K</span>
           </div>
           <div className="agume-header-right">
             <Tooltip title={isDark ? 'Гэрэл горим' : 'Харанхуй горим'}>
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="agume-header-trigger"
+                className="agume-header-icon-btn"
                 aria-label={isDark ? 'Гэрэл горим' : 'Харанхуй горим'}
               >
                 {isDark ? <SunOutlined /> : <MoonOutlined />}
               </button>
             </Tooltip>
+            <div className="agume-header-divider-v" aria-hidden />
             <Dropdown
               menu={{
                 items: [
@@ -230,16 +251,25 @@ export default function DashboardLayout({
               trigger={['click']}
               placement="bottomRight"
             >
-              <button type="button" className="agume-header-user">
-                <Avatar size="small" style={{ background: 'var(--agume-primary)' }} icon={<UserOutlined />} />
+              <button type="button" className="agume-header-user-wrap">
+                <span className="agume-header-user-avatar">
+                  <Avatar size="small" style={{ background: 'var(--green-600)', color: 'white' }} icon={<UserOutlined />} />
+                </span>
+                <span className="agume-header-user-info">
+                  <span className="agume-header-user-name">{displayName}</span>
+                  {authUser?.username && (
+                    <span className="agume-header-user-sub">{authUser.username}</span>
+                  )}
+                </span>
               </button>
             </Dropdown>
           </div>
         </Header>
         <Content className="agume-content">
-          {children}
-        </Content>
+            {children}
+          </Content>
+        </Layout>
       </Layout>
-    </Layout>
+    </ToastProvider>
   );
 }

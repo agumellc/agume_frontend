@@ -12,11 +12,10 @@ import {
   Select,
   Switch,
   message,
-  Popconfirm,
   Space,
   Tag,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, TeamOutlined } from '@ant-design/icons';
+import { PlusOutlined, UserOutlined, TeamOutlined } from '@ant-design/icons';
 import { employeesApi } from '@/lib/api';
 import PageHeader from '../components/PageHeader';
 
@@ -226,30 +225,6 @@ export default function EmployeesPage() {
           },
         },
       ],
-    },
-    {
-      title: 'Үйлдэл',
-      key: 'actions',
-      width: 140,
-      fixed: 'right' as const,
-      render: (_: unknown, record: Record<string, unknown>) => (
-        <Space size="small" onClick={(e) => e.stopPropagation()}>
-          <Button
-            type="link"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => router.push(`/employees/${record.id}`)}
-            className="agume-employees-action-btn"
-          >
-            Засах
-          </Button>
-          <Popconfirm title="Устгах уу?" onConfirm={() => onDelete(record.id as number)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              Устгах
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
     },
   ];
 
