@@ -62,7 +62,9 @@ export default function NewOrderPage() {
   const stepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
-    productsApi.list({ is_active: 'true' }).then(({ data }) => setProducts(data.results || data));
+    productsApi
+      .list({ is_active: 'true', page_size: '500' })
+      .then(({ data }) => setProducts(data.results || data));
     customersApi.list({ is_active: 'true' }).then(({ data }) => setCustomers(data.results || data));
     employeesApi.list().then(({ data }) => setEmployees(data.results || data));
   }, []);
@@ -100,16 +102,24 @@ export default function NewOrderPage() {
       setAiStep(3);
 
       if (data.success && data.items?.length) {
-        const rows: OrderItemRow[] = data.items.map((item: Record<string, unknown>, i: number) => ({
-          key: `ai-${i}-${Date.now()}`,
-          product: item.product as number,
-          product_name: item.product_name as string,
-          product_code: item.product_code as string,
-          product_unit: item.product_unit as string,
-          quantity: item.quantity as number,
-          unit_price: item.unit_price as number,
-          note: (item.note as string) || '',
-        }));
+        const rows: OrderItemRow[] = data.items.map((item: Record<string, unknown>, i: number) => {
+          const pid = item.product;
+          const hasProduct = pid != null && pid !== '';
+          return {
+            key: `ai-${i}-${Date.now()}`,
+            ...(hasProduct
+              ? {
+                  product: Number(pid),
+                  product_name: item.product_name as string,
+                  product_code: item.product_code as string,
+                  product_unit: item.product_unit as string,
+                }
+              : {}),
+            quantity: Number(item.quantity) || 1,
+            unit_price: hasProduct ? Number(item.unit_price) || 0 : 0,
+            note: (item.note as string) || '',
+          };
+        });
         setItems((prev) => [...prev, ...rows]);
         form.setFieldValue('note', data.note || form.getFieldValue('note'));
         setAiSuccess(data.message || `${data.items?.length ?? 0} бараа амжилттай таньлаа`);
@@ -152,12 +162,21 @@ export default function NewOrderPage() {
         if (r.key !== key) return r;
         const next = { ...r, [field]: value };
         if (field === 'product') {
-          const prod = products.find((p) => p.id === value);
+          const prod =
+            value != null && value !== ''
+              ? products.find((p) => p.id === value)
+              : undefined;
           if (prod) {
             next.product_name = prod.name;
             next.product_code = prod.code;
             next.product_unit = prod.unit;
             next.unit_price = Number(prod.price);
+          } else {
+            delete next.product;
+            delete next.product_name;
+            delete next.product_code;
+            delete next.product_unit;
+            next.unit_price = 0;
           }
         }
         return next;
@@ -223,7 +242,7 @@ export default function NewOrderPage() {
       title: 'Бараа',
       dataIndex: 'product',
       width: 280,
-      render: (val: number, row: OrderItemRow) => {
+      render: (val: number | undefined, row: OrderItemRow) => {
         const productOptions = products.map((p) => ({ value: p.id, label: `${p.code} - ${p.name}` }));
         const hasApiLabel = row.product_code != null && row.product_name != null && row.product;
         const apiLabel = hasApiLabel ? `${row.product_code} - ${row.product_name}` : null;
@@ -231,16 +250,17 @@ export default function NewOrderPage() {
           ? (() => {
               const existing = productOptions.find((o) => o.value === row.product);
               if (existing) return productOptions.map((o) => (o.value === row.product ? { ...o, label: apiLabel } : o));
-              return [{ value: row.product, label: apiLabel }, ...productOptions];
+              return [{ value: row.product as number, label: apiLabel }, ...productOptions];
             })()
           : productOptions;
         return (
           <Select
             placeholder="Бараа сонгох"
             showSearch
+            allowClear
             optionFilterProp="label"
             style={{ width: '100%' }}
-            value={val}
+            value={val ?? undefined}
             onChange={(v) => updateRow(row.key, 'product', v)}
             options={options}
           />

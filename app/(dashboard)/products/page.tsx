@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Table,
   Button,
@@ -11,7 +11,8 @@ import {
   InputNumber,
   Switch,
 } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import type { FilterValue, SorterResult, TableCurrentDataSource } from 'antd/es/table/interface';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useRouter, usePathname } from 'next/navigation';
 import PageHeader from '../components/PageHeader';
@@ -42,25 +43,54 @@ export interface ProductRow {
   pieces_per_box?: string | number;
 }
 
+type PaginatedProducts = {
+  count?: number;
+  results?: ProductRow[];
+};
+
 export default function ProductsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const { addToast } = useToast();
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+  const [ordering, setOrdering] = useState<string | undefined>(undefined);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [form] = Form.useForm();
+  const sortStateRef = useRef<{ field?: string; order?: string | null }>({});
 
-  const fetchProducts = async () => {
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useLayoutEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, categoryFilter]);
+
+  const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await productsApi.list();
-      const list = (data?.results ?? data) as ProductRow[];
+      const params: Record<string, string> = {
+        page: String(currentPage),
+        page_size: String(pageSize),
+      };
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (categoryFilter != null) params.category = String(categoryFilter);
+      if (ordering) params.ordering = ordering;
+      const { data } = await productsApi.list(params);
+      const body = data as PaginatedProducts & ProductRow[];
+      const list = (body?.results ?? (Array.isArray(body) ? body : [])) as ProductRow[];
       setProducts(Array.isArray(list) ? list : []);
+      setTotal(typeof body?.count === 'number' ? body.count : list.length);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } } };
       const msg = e?.response?.data?.detail ?? 'Бараа ачааллахад алдаа гарлаа';
@@ -68,11 +98,11 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [categoryFilter, currentPage, debouncedSearch, ordering, pageSize, addToast]);
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    loadProducts();
+  }, [loadProducts]);
 
   useEffect(() => {
     productsApi
@@ -121,7 +151,7 @@ export default function ProductsPage() {
         addToast({ type: 'success', title: 'Нэмэгдлээ' });
       }
       setModalOpen(false);
-      fetchProducts();
+      loadProducts();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } } };
       addToast({
@@ -132,22 +162,6 @@ export default function ProductsPage() {
     }
   };
 
-  const dataSource = useMemo(() => {
-    let list = products;
-    if (categoryFilter != null) {
-      list = list.filter((p) => p.category === categoryFilter);
-    }
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          String(p.code ?? '').toLowerCase().includes(q) ||
-          String(p.name ?? '').toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [products, categoryFilter, search]);
-
   const columns: ColumnsType<ProductRow> = useMemo(
     () => [
       {
@@ -155,15 +169,17 @@ export default function ProductsPage() {
         key: 'index',
         width: 56,
         align: 'center',
-        render: (_: unknown, __: ProductRow, index: number) => (index != null ? index + 1 : '—'),
+        render: (_: unknown, __: ProductRow, index: number) =>
+          index != null ? (currentPage - 1) * pageSize + index + 1 : '—',
       },
       {
         title: 'Код',
         dataIndex: 'code',
         key: 'code',
         width: 100,
-        sorter: (a, b) => String(a?.code ?? '').localeCompare(String(b?.code ?? '')),
-        sortDirections: ['ascend', 'descend'],
+        sorter: true,
+        sortOrder:
+          ordering === 'code' ? 'ascend' : ordering === '-code' ? 'descend' : undefined,
         render: (code: string, record) => (
           <Button
             type="link"
@@ -183,8 +199,9 @@ export default function ProductsPage() {
         dataIndex: 'name',
         key: 'name',
         ellipsis: true,
-        sorter: (a, b) => String(a?.name ?? '').localeCompare(String(b?.name ?? '')),
-        sortDirections: ['ascend', 'descend'],
+        sorter: true,
+        sortOrder:
+          ordering === 'name' ? 'ascend' : ordering === '-name' ? 'descend' : undefined,
         render: (name: string, record) => (
           <Button
             type="link"
@@ -205,9 +222,6 @@ export default function ProductsPage() {
         key: 'category_name',
         width: 120,
         render: (val: string) => (val ? val : '—'),
-        sorter: (a, b) =>
-          String(a?.category_name ?? '').localeCompare(String(b?.category_name ?? '')),
-        sortDirections: ['ascend', 'descend'],
       },
       {
         title: 'Нэгж',
@@ -215,8 +229,9 @@ export default function ProductsPage() {
         key: 'unit',
         width: 80,
         render: (v: string) => v ?? '—',
-        sorter: (a, b) => String(a?.unit ?? '').localeCompare(String(b?.unit ?? '')),
-        sortDirections: ['ascend', 'descend'],
+        sorter: true,
+        sortOrder:
+          ordering === 'unit' ? 'ascend' : ordering === '-unit' ? 'descend' : undefined,
       },
       {
         title: 'Үнэ',
@@ -224,8 +239,9 @@ export default function ProductsPage() {
         key: 'price',
         width: 120,
         align: 'right',
-        sorter: (a, b) => (Number(a?.price) ?? 0) - (Number(b?.price) ?? 0),
-        sortDirections: ['ascend', 'descend'],
+        sorter: true,
+        sortOrder:
+          ordering === 'price' ? 'ascend' : ordering === '-price' ? 'descend' : undefined,
         render: (v: number) =>
           v == null || Number(v) === 0 ? (
             <Badge variant="warning">Үнэгүй</Badge>
@@ -246,12 +262,51 @@ export default function ProductsPage() {
           ) : (
             <Badge variant="neutral">Идэвхгүй</Badge>
           ),
-        sorter: (a, b) => (a?.is_active ? 1 : 0) - (b?.is_active ? 1 : 0),
-        sortDirections: ['ascend', 'descend'],
+        sorter: true,
+        sortOrder:
+          ordering === 'is_active'
+            ? 'ascend'
+            : ordering === '-is_active'
+              ? 'descend'
+              : undefined,
       },
     ],
-    [router]
+    [router, currentPage, pageSize, ordering]
   );
+
+  const onTableChange = (
+    pag: TablePaginationConfig,
+    _filters: Record<string, FilterValue | null>,
+    sorter: SorterResult<ProductRow> | SorterResult<ProductRow>[],
+    _extra: TableCurrentDataSource<ProductRow>
+  ) => {
+    const s = Array.isArray(sorter) ? sorter[0] : sorter;
+    const fieldKey =
+      (s?.columnKey as string) || (typeof s?.field === 'string' ? s.field : undefined);
+    const order = s?.order;
+    const fk = fieldKey || '';
+    const prev = sortStateRef.current;
+    const sortChanged = fk !== (prev.field || '') || (order || '') !== (prev.order || '');
+    sortStateRef.current = { field: fk || undefined, order };
+
+    let newOrdering: string | undefined;
+    if (fk && order) {
+      newOrdering = order === 'descend' ? `-${fk}` : fk;
+    } else {
+      newOrdering = undefined;
+    }
+
+    const nextPageSize = pag.pageSize ?? pageSize;
+    const sizeChanged = nextPageSize !== pageSize;
+
+    setOrdering(newOrdering);
+    if (sizeChanged) setPageSize(nextPageSize);
+    if (sortChanged || sizeChanged) {
+      setCurrentPage(1);
+    } else {
+      setCurrentPage(pag.current ?? 1);
+    }
+  };
 
   const hasFilters = categoryFilter != null || search.trim() !== '';
 
@@ -303,6 +358,7 @@ export default function ProductsPage() {
               onClick={() => {
                 setCategoryFilter(null);
                 setSearch('');
+                setCurrentPage(1);
               }}
               className="agume-toolbar-clear"
             >
@@ -310,24 +366,27 @@ export default function ProductsPage() {
             </Button>
           )}
           <span className="agume-toolbar-count">
-            {loading ? '...' : `${dataSource.length} бараа`}
+            {loading ? '...' : `Нийт ${total.toLocaleString('mn-MN')} бараа`}
           </span>
         </div>
 
         <Table<ProductRow>
           rowKey="id"
           columns={columns}
-          dataSource={dataSource}
+          dataSource={products}
           loading={loading}
           bordered
           size="small"
           locale={{ emptyText: 'Бараа олдсонгүй' }}
           pagination={{
-            pageSize: 100,
+            current: currentPage,
+            pageSize,
+            total,
             showSizeChanger: true,
-            pageSizeOptions: ['50', '100', '200'],
-            showTotal: (total) => `Нийт ${total}`,
+            pageSizeOptions: ['25', '50', '100', '200'],
+            showTotal: (t, range) => `${range[0]}-${range[1]} / ${t}`,
           }}
+          onChange={onTableChange}
           scroll={{ x: 900, y: 'calc(100vh - 260px)' }}
           className="agume-data-table"
           rowClassName={(_record, index) =>
