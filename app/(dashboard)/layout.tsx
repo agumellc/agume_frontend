@@ -17,6 +17,10 @@ import {
   ApartmentOutlined,
   MoonOutlined,
   SunOutlined,
+  BuildOutlined,
+  CheckSquareOutlined,
+  InboxOutlined,
+  CarOutlined,
 } from '@ant-design/icons';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -33,6 +37,10 @@ const { Sider, Header, Content } = Layout;
 const MAIN_NAV_ITEMS: { key: string; icon: React.ReactNode; label: string; href: string }[] = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Хянах самбар', href: '/dashboard' },
   { key: '/orders', icon: <ShoppingCartOutlined />, label: 'Захиалга', href: '/orders' },
+  { key: '/factory', icon: <BuildOutlined />, label: 'Үйлдвэр (нэгтгэл)', href: '/factory' },
+  { key: '/prep-tasks', icon: <CheckSquareOutlined />, label: 'Даалгавар', href: '/prep-tasks' },
+  { key: '/inventory', icon: <InboxOutlined />, label: 'Нөөц', href: '/inventory' },
+  { key: '/driver-route', icon: <CarOutlined />, label: 'Жолоочийн маршрут', href: '/driver-route' },
   { key: '/products', icon: <AppstoreOutlined />, label: 'Бараа материал', href: '/products' },
   { key: '/customers', icon: <TeamOutlined />, label: 'Харилцагч', href: '/customers' },
   { key: '/employees', icon: <UserOutlined />, label: 'Ажилтан', href: '/employees' },
@@ -93,6 +101,12 @@ export default function DashboardLayout({
   const siderWidth = collapsed ? 80 : 248;
 
   const path = pathname || '';
+  const prepDateQs = `?date=${encodeURIComponent(dayjs().format('YYYY-MM-DD'))}`;
+  const mainNavLinks = MAIN_NAV_ITEMS.map((item) =>
+    item.key === '/factory' || item.key === '/prep-tasks'
+      ? { ...item, href: `${item.key}${prepDateQs}` }
+      : item
+  );
   const selectedKey = (() => {
     const keys = MAIN_NAV_ITEMS.map((i) => i.key);
     const matched = keys.filter((key) => path === key || path.startsWith(key + '/'));
@@ -156,7 +170,7 @@ export default function DashboardLayout({
           mode="inline"
           inlineCollapsed={collapsed}
           selectedKeys={[selectedKey]}
-          items={MAIN_NAV_ITEMS.map(({ key, icon, label, href }) => ({
+          items={mainNavLinks.map(({ key, icon, label, href }) => ({
             key,
             icon,
             label: <Link href={href}>{label}</Link>,

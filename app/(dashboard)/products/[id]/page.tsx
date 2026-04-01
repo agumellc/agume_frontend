@@ -12,11 +12,13 @@ import {
   Switch,
   message,
   Space,
+  Upload,
 } from 'antd';
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
 import { useRouter, useParams } from 'next/navigation';
 import { productsApi } from '@/lib/api';
 import PageHeader from '../../components/PageHeader';
+import PackageSizesEditor from '../../components/PackageSizesEditor';
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -28,6 +30,7 @@ export default function ProductDetailPage() {
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [form] = Form.useForm();
+  const productUnit = Form.useWatch('unit', form) || 'кг';
 
   const fetchProduct = () => {
     if (!id) return;
@@ -49,6 +52,11 @@ export default function ProductDetailPage() {
 
   useEffect(() => {
     if (product && editing) {
+      const pkgList = Array.isArray(product.package_sizes)
+        ? (product.package_sizes as unknown[])
+            .map((x) => Number(x))
+            .filter((n) => !Number.isNaN(n) && n > 0)
+        : [];
       form.setFieldsValue({
         code: product.code,
         name: product.name,
@@ -60,14 +68,27 @@ export default function ProductDetailPage() {
         price: product.price,
         is_active: product.is_active !== false,
         note: product.note,
+        preparation_bonus_percent: product.preparation_bonus_percent ?? 0,
+        package_sizes: pkgList,
+        complaint_threshold_count: product.complaint_threshold_count ?? 0,
+        complaint_penalty_percent: product.complaint_penalty_percent ?? 0,
+        stock_min_threshold: product.stock_min_threshold ?? undefined,
       });
     }
   }, [product, editing, form]);
 
   const onFinish = async (values: Record<string, unknown>) => {
+    const raw = values.package_sizes;
+    const package_sizes = Array.isArray(raw)
+      ? raw
+          .map((x) => (typeof x === 'number' ? x : parseFloat(String(x))))
+          .filter((n) => !Number.isNaN(n) && n > 0)
+      : [];
+    const payload = { ...values, package_sizes };
+
     setSaving(true);
     try {
-      await productsApi.update(id, values);
+      await productsApi.update(id, payload);
       message.success('Шинэчлэгдлээ');
       setEditing(false);
       fetchProduct();
@@ -82,6 +103,18 @@ export default function ProductDetailPage() {
   const cancelEdit = () => {
     setEditing(false);
     form.resetFields();
+  };
+
+  const uploadImage = async (file: File) => {
+    const fd = new FormData();
+    fd.append('image', file);
+    try {
+      await productsApi.patch(id, fd);
+      message.success('Зураг шинэчлэгдлээ');
+      fetchProduct();
+    } catch {
+      message.error('Зураг оруулахад алдаа');
+    }
   };
 
   if (loading || !product) {
@@ -161,6 +194,21 @@ export default function ProductDetailPage() {
             <Form.Item name="price" label="Үнэ">
               <InputNumber min={0} style={{ width: '100%' }} />
             </Form.Item>
+            <Form.Item name="preparation_bonus_percent" label="Бэлтгэлийн бонус %">
+              <InputNumber min={0} max={100} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item label="Савлагааны хэмжээнүүд">
+              <PackageSizesEditor unitLabel={String(productUnit)} />
+            </Form.Item>
+            <Form.Item name="complaint_threshold_count" label="Гомдлын босго (0=идэвхгүй)">
+              <InputNumber min={0} max={999} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="complaint_penalty_percent" label="Босго давбал хасалт %">
+              <InputNumber min={0} max={100} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="stock_min_threshold" label="Доод нөөц (сануулга)">
+              <InputNumber min={0} style={{ width: '100%' }} placeholder="Хоосон = идэвхгүй" />
+            </Form.Item>
             <Form.Item name="is_active" label="Идэвхтэй" valuePropName="checked">
               <Switch />
             </Form.Item>
@@ -181,6 +229,23 @@ export default function ProductDetailPage() {
         </Card>
       ) : (
         <Card>
+          <div style={{ marginBottom: 20 }}>
+            {product.image_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={String(product.image_url)}
+                alt=""
+                style={{ maxWidth: 280, maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
+              />
+            ) : (
+              <span className="agume-product-detail-value">Зураг байхгүй</span>
+            )}
+            <div style={{ marginTop: 8 }}>
+              <Upload accept="image/*" showUploadList={false} beforeUpload={(file) => { void uploadImage(file); return false; }}>
+                <Button size="small">Зураг солих</Button>
+              </Upload>
+            </div>
+          </div>
           <div className="agume-product-detail-rows">
             <div className="agume-product-detail-row">
               <span className="agume-product-detail-label">Код</span>
@@ -202,6 +267,28 @@ export default function ProductDetailPage() {
               <span className="agume-product-detail-label">Үнэ</span>
               <span className="agume-product-detail-value">
                 {product.price != null ? `${Number(product.price).toLocaleString('mn-MN')} ₮` : '-'}
+              </span>
+            </div>
+            <div className="agume-product-detail-row">
+              <span className="agume-product-detail-label">Бонус %</span>
+              <span className="agume-product-detail-value">
+                {String(product.preparation_bonus_percent ?? 0)}%
+              </span>
+            </div>
+            <div className="agume-product-detail-row">
+              <span className="agume-product-detail-label">Савлагааны хэмжээнүүд</span>
+              <span className="agume-product-detail-value">
+                {Array.isArray(product.package_sizes) && (product.package_sizes as unknown[]).length
+                  ? (product.package_sizes as number[])
+                      .map((x) => `${x} ${String(product.unit || 'кг')}`)
+                      .join(' · ')
+                  : '—'}
+              </span>
+            </div>
+            <div className="agume-product-detail-row">
+              <span className="agume-product-detail-label">Доод нөөц</span>
+              <span className="agume-product-detail-value">
+                {product.stock_min_threshold != null ? String(product.stock_min_threshold) : '—'}
               </span>
             </div>
             <div className="agume-product-detail-row">

@@ -163,6 +163,14 @@ export default function OrdersPage() {
         render: (v: unknown) => (v ? String(v) : '–'),
       },
       {
+        title: 'Яаралтай',
+        dataIndex: 'is_urgent',
+        key: 'is_urgent',
+        width: 90,
+        render: (v: unknown) =>
+          v ? <Tag color="red">Яаралтай</Tag> : <span style={{ color: 'var(--agume-text-tertiary)' }}>—</span>,
+      },
+      {
         title: 'Харилцагч',
         dataIndex: 'customer_name',
         key: 'customer_name',
@@ -208,6 +216,20 @@ export default function OrdersPage() {
         sortDirections: ['ascend', 'descend'],
         render: (v: unknown) =>
           v != null && v !== '' ? `${Number(v).toLocaleString('mn-MN')} ₮` : '–',
+      },
+      {
+        title: 'Баталгаа',
+        dataIndex: 'has_delivery_proof',
+        key: 'has_delivery_proof',
+        width: 90,
+        render: (v: unknown) => (v ? <Tag color="green">Тийм</Tag> : <span>—</span>),
+      },
+      {
+        title: 'Маргаан',
+        dataIndex: 'customer_disputed_delivery',
+        key: 'customer_disputed_delivery',
+        width: 90,
+        render: (v: unknown) => (v ? <Tag color="red">Тийм</Tag> : <span>—</span>),
       },
     ],
     [router]

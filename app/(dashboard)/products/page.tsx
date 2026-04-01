@@ -16,6 +16,7 @@ import type { FilterValue, SorterResult, TableCurrentDataSource } from 'antd/es/
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useRouter, usePathname } from 'next/navigation';
 import PageHeader from '../components/PageHeader';
+import PackageSizesEditor from '../components/PackageSizesEditor';
 import { Badge } from '../components/Badge';
 import { useToast } from '../components/ToastContext';
 import { productsApi } from '@/lib/api';
@@ -41,6 +42,12 @@ export interface ProductRow {
   note?: string;
   package_weight?: string | number;
   pieces_per_box?: string | number;
+  preparation_bonus_percent?: number;
+  package_sizes?: number[];
+  complaint_threshold_count?: number;
+  complaint_penalty_percent?: number;
+  stock_min_threshold?: number;
+  image_url?: string;
 }
 
 type PaginatedProducts = {
@@ -65,6 +72,7 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [form] = Form.useForm();
+  const productUnit = Form.useWatch('unit', form) || 'кг';
   const sortStateRef = useRef<{ field?: string; order?: string | null }>({});
 
   useEffect(() => {
@@ -123,6 +131,11 @@ export default function ProductsPage() {
     try {
       const { data } = await productsApi.detail(id);
       const r = data as Record<string, unknown>;
+      const pkgList = Array.isArray(r.package_sizes)
+        ? (r.package_sizes as unknown[])
+            .map((x) => Number(x))
+            .filter((n) => !Number.isNaN(n) && n > 0)
+        : [];
       form.setFieldsValue({
         code: r.code,
         name: r.name,
@@ -134,6 +147,11 @@ export default function ProductsPage() {
         price: r.price ?? 0,
         is_active: r.is_active !== false,
         note: r.note,
+        preparation_bonus_percent: r.preparation_bonus_percent ?? 0,
+        package_sizes: pkgList,
+        complaint_threshold_count: r.complaint_threshold_count ?? 0,
+        complaint_penalty_percent: r.complaint_penalty_percent ?? 0,
+        stock_min_threshold: r.stock_min_threshold ?? undefined,
       });
       setModalOpen(true);
     } catch {
@@ -142,12 +160,23 @@ export default function ProductsPage() {
   };
 
   const onFinish = async (values: Record<string, unknown>) => {
+    const raw = values.package_sizes;
+    const package_sizes = Array.isArray(raw)
+      ? raw
+          .map((x) => (typeof x === 'number' ? x : parseFloat(String(x))))
+          .filter((n) => !Number.isNaN(n) && n > 0)
+      : [];
+    const payload = {
+      ...values,
+      package_sizes,
+    };
+
     try {
       if (editingId) {
-        await productsApi.update(editingId, values);
+        await productsApi.update(editingId, payload);
         addToast({ type: 'success', title: 'Шинэчлэгдлээ' });
       } else {
-        await productsApi.create(values);
+        await productsApi.create(payload);
         addToast({ type: 'success', title: 'Нэмэгдлээ' });
       }
       setModalOpen(false);
@@ -404,7 +433,7 @@ export default function ProductsPage() {
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         footer={null}
-        width={560}
+        width={640}
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={onFinish}>
@@ -435,6 +464,39 @@ export default function ProductsPage() {
           </Form.Item>
           <Form.Item name="price" label="Үнэ" initialValue={0}>
             <InputNumber min={0} style={{ width: '100%' }} addonAfter="₮" />
+          </Form.Item>
+          <Form.Item
+            name="preparation_bonus_percent"
+            label="Бэлтгэлийн бонус (барааны үнэ дээрх %)"
+            initialValue={0}
+            tooltip="Дууссан даалгаврын бонус тооцоололд ашиглана"
+          >
+            <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="%" />
+          </Form.Item>
+          <Form.Item label="Савлагааны хэмжээнүүд" tooltip="Нэгтгэл, даалгаварт савлагаар задлахад ашиглана">
+            <PackageSizesEditor unitLabel={String(productUnit)} />
+          </Form.Item>
+          <Form.Item
+            name="complaint_threshold_count"
+            label="Гомдлын босго (сард, бараагаар)"
+            initialValue={0}
+            tooltip="0 = идэвхгүй. Тухайн бараанд энэ тооноос их гомдол ирвэл бонусын хасалт"
+          >
+            <InputNumber min={0} max={999} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="complaint_penalty_percent"
+            label="Босго давбал бонусын хасалт"
+            initialValue={0}
+          >
+            <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="%" />
+          </Form.Item>
+          <Form.Item
+            name="stock_min_threshold"
+            label="Доод нөөц (сануулга)"
+            tooltip="Үлдэгдэл энэ доор орвол «Нөөц» хуудасны дутуу жагсаалтад орно"
+          >
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="Хоосон = сануулга үгүй" />
           </Form.Item>
           <Form.Item name="is_active" label="Идэвхтэй" valuePropName="checked" initialValue={true}>
             <Switch />

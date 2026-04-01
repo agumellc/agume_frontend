@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, Form, Input, Button, message } from 'antd';
+import { Card, Form, Input, Button, message, Typography } from 'antd';
 import { usePathname } from 'next/navigation';
 import PageHeader from '../components/PageHeader';
 import { configApi, type CompanySettings } from '@/lib/api';
@@ -27,6 +27,8 @@ export default function SettingsPage() {
           bank_name: data.bank_name ?? '',
           bank_account: data.bank_account ?? '',
           bank_code: data.bank_code ?? '',
+          route_origin_latitude: data.route_origin_latitude ?? undefined,
+          route_origin_longitude: data.route_origin_longitude ?? undefined,
         });
       })
       .catch(() => {
@@ -86,6 +88,15 @@ export default function SettingsPage() {
           <Form.Item name="bank_code" label="Банкны код">
             <Input placeholder="Банкны код (заавал биш)" />
           </Form.Item>
+          <Form.Item name="route_origin_latitude" label="Маршрут эхлэл — өргөрөг (lat)">
+            <Input placeholder="Ж: 47.918" />
+          </Form.Item>
+          <Form.Item name="route_origin_longitude" label="Маршрут эхлэл — уртраг (lng)">
+            <Input placeholder="Ж: 106.917" />
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+            SMS: backend .env дээр SMS_GATEWAY_URL, SMS_GATEWAY_TOKEN (хоосон бол зөвхөн лог бичнэ).
+          </Typography.Paragraph>
           <Form.Item>
             <Button
               type="primary"

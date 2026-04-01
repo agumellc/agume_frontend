@@ -12,6 +12,10 @@ import {
   Dropdown,
   Steps,
   Modal,
+  Switch,
+  Form,
+  Select,
+  Input,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -22,7 +26,7 @@ import {
   MailOutlined,
 } from '@ant-design/icons';
 import { useRouter, useParams, usePathname } from 'next/navigation';
-import { ordersApi } from '@/lib/api';
+import { employeesApi, ordersApi, preparationApi } from '@/lib/api';
 import PageHeader from '../../components/PageHeader';
 import { InvoicePdfTemplate, type OrderForPdf } from '../components/InvoicePdfTemplate';
 import { VoucherPdfTemplate } from '../components/VoucherPdfTemplate';
@@ -60,6 +64,10 @@ export default function OrderDetailPage() {
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
   const [invoiceCompany, setInvoiceCompany] = useState<ReturnType<typeof companySettingsToInvoiceInfo> | null>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [complaintOpen, setComplaintOpen] = useState(false);
+  const [complaintSaving, setComplaintSaving] = useState(false);
+  const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
+  const [complaintForm] = Form.useForm();
   const pdfContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,6 +104,13 @@ export default function OrderDetailPage() {
   }, [id]);
 
   useEffect(() => {
+    employeesApi.list({ is_active: 'true' }).then(({ data }) => {
+      const list = (data as { results?: { id: number; name: string }[] }).results ?? data;
+      setEmployees(Array.isArray(list) ? list.map((e) => ({ id: e.id, name: e.name })) : []);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!pdfType || !order || !pdfContainerRef.current) return;
     const el = pdfContainerRef.current.firstElementChild as HTMLElement | null;
     if (!el) return;
@@ -123,6 +138,17 @@ export default function OrderDetailPage() {
       message.success('Статус шинэчлэгдлээ');
     } catch {
       message.error('Статус солиход алдаа гарлаа');
+    }
+  };
+
+  const setUrgent = async (checked: boolean) => {
+    try {
+      await ordersApi.patch(id, { is_urgent: checked });
+      const { data } = await ordersApi.detail(id);
+      setOrder(data);
+      message.success('Хадгалагдлаа');
+    } catch {
+      message.error('Хадгалахад алдаа');
     }
   };
 
@@ -239,6 +265,7 @@ export default function OrderDetailPage() {
               >
                 <Button icon={<SwapOutlined />}>Статус солих</Button>
               </Dropdown>
+              <Button onClick={() => setComplaintOpen(true)}>Гомдол бүртгэх</Button>
               <Button icon={<PrinterOutlined />} onClick={handlePrint}>
                 Хэвлэх
               </Button>
@@ -274,6 +301,9 @@ export default function OrderDetailPage() {
           <Descriptions.Item label="Нийт дүн">
             <strong>{Number(order.total_amount).toLocaleString()} ₮</strong>
           </Descriptions.Item>
+          <Descriptions.Item label="Яаралтай">
+            <Switch checked={Boolean(order.is_urgent)} onChange={setUrgent} checkedChildren="Тийм" unCheckedChildren="Үгүй" />
+          </Descriptions.Item>
           {Boolean(order.note) && (
             <Descriptions.Item label="Тайлбар" span={3}>
               {String(order.note)}
@@ -300,6 +330,58 @@ export default function OrderDetailPage() {
           )}
         />
       </Card>
+
+      <Modal
+        title="Бэлтгэлийн гомдол / санал"
+        open={complaintOpen}
+        onCancel={() => setComplaintOpen(false)}
+        okText="Илгээх"
+        confirmLoading={complaintSaving}
+        onOk={async () => {
+          try {
+            const v = await complaintForm.validateFields();
+            setComplaintSaving(true);
+            await preparationApi.complaints.create({
+              order: id,
+              product: v.product,
+              preparer: v.preparer,
+              message: v.message,
+            });
+            message.success('Бүртгэгдлээ');
+            complaintForm.resetFields();
+            setComplaintOpen(false);
+          } catch (e: unknown) {
+            const d = (e as { response?: { data?: Record<string, unknown> } })?.response?.data;
+            if (d && typeof d === 'object' && 'detail' in d) message.error(String(d.detail));
+          } finally {
+            setComplaintSaving(false);
+          }
+        }}
+        destroyOnClose
+      >
+        <Form form={complaintForm} layout="vertical">
+          <Form.Item name="product" label="Бараа" rules={[{ required: true, message: 'Сонгоно уу' }]}>
+            <Select
+              placeholder="Захиалгын мөрөөс"
+              options={items.map((it) => ({
+                value: it.product as number,
+                label: `${String(it.product_name ?? '')} (${String(it.quantity ?? '')} ${String(it.product_unit ?? '')})`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="preparer" label="Бэлтгэсэн ажилтан" rules={[{ required: true, message: 'Сонгоно уу' }]}>
+            <Select
+              placeholder="Ажилтан"
+              options={employees.map((e) => ({ value: e.id, label: e.name }))}
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+          <Form.Item name="message" label="Тайлбар" rules={[{ required: true, message: 'Бичнэ үү' }]}>
+            <Input.TextArea rows={3} placeholder="Гомдлын агуулга" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* Нэхэмжлэх preview modal */}
       <Modal

@@ -9,6 +9,7 @@ import {
   Input,
   InputNumber,
   Button,
+  Switch,
   Table,
   Alert,
   Upload,
@@ -59,7 +60,14 @@ export default function NewOrderPage() {
   const [aiSuccess, setAiSuccess] = useState('');
   const [saveLoading, setSaveLoading] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [orderImagePreviewUrl, setOrderImagePreviewUrl] = useState<string | null>(null);
   const stepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    return () => {
+      if (orderImagePreviewUrl) URL.revokeObjectURL(orderImagePreviewUrl);
+    };
+  }, [orderImagePreviewUrl]);
 
   useEffect(() => {
     productsApi
@@ -84,6 +92,10 @@ export default function NewOrderPage() {
   const handleAiUpload = async (file: File) => {
     setAiError('');
     setAiSuccess('');
+    setOrderImagePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
     setAiLoading(true);
     setAiStep(0);
     clearStepTimers();
@@ -130,8 +142,20 @@ export default function NewOrderPage() {
       }
     } catch (err: unknown) {
       clearStepTimers();
-      const axErr = err as { response?: { data?: { error?: string } } };
-      setAiError(axErr?.response?.data?.error || 'AI уншихад алдаа гарлаа');
+      const axErr = err as {
+        code?: string;
+        message?: string;
+        response?: { data?: { error?: string } };
+      };
+      const msg = typeof axErr.message === 'string' ? axErr.message.toLowerCase() : '';
+      const isTimeout =
+        axErr.code === 'ECONNABORTED' || msg.includes('timeout') || msg.includes('exceeded');
+      setAiError(
+        axErr?.response?.data?.error ||
+          (isTimeout
+            ? 'Холболтын хугацаа дууслаа (зураг том эсвэл сервер удаан байна). Дахин оролдоно уу.'
+            : 'AI уншихад алдаа гарлаа')
+      );
     } finally {
       setAiLoading(false);
       setFileList([]);
@@ -210,6 +234,7 @@ export default function NewOrderPage() {
         operator: values.operator || null,
         driver: values.driver || null,
         note: values.note || '',
+        is_urgent: Boolean(values.is_urgent),
         created_by_ai: aiMode,
         items: items
           .filter((r) => r.product && Number(r.quantity) > 0)
@@ -324,9 +349,10 @@ export default function NewOrderPage() {
   ];
 
   const pathname = usePathname();
+  const showOrderImageBesideLines = Boolean(orderImagePreviewUrl && !aiLoading);
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+    <div style={{ maxWidth: showOrderImageBesideLines ? 1320 : 1000, margin: '0 auto' }}>
       <PageHeader
         pathname={pathname}
         title="Шинэ захиалга"
@@ -420,7 +446,7 @@ export default function NewOrderPage() {
           onFinish={onFinish}
           initialValues={{
             order_date: dayjs(),
-            delivery_date: dayjs(),
+            delivery_date: dayjs().add(2, 'day'),
           }}
         >
           <Space wrap size="large" style={{ width: '100%', marginBottom: 16 }}>
@@ -433,9 +459,20 @@ export default function NewOrderPage() {
               />
             </Form.Item>
             <Form.Item name="order_date" label="Захиалгын огноо" rules={[{ required: true }]}>
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker
+                style={{ width: '100%' }}
+                onChange={(d) => {
+                  form.setFieldsValue({
+                    delivery_date: d ? d.add(2, 'day') : undefined,
+                  });
+                }}
+              />
             </Form.Item>
-            <Form.Item name="delivery_date" label="Хүргэлтийн огноо">
+            <Form.Item
+              name="delivery_date"
+              label="Хүргэлтийн огноо"
+              tooltip="Анхдагч: захиалгын огнооноос 2 өдрийн дараа. Өөрчилж болно."
+            >
               <DatePicker style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="operator" label="Оператор">
@@ -458,16 +495,67 @@ export default function NewOrderPage() {
           <Form.Item name="note" label="Тайлбар">
             <TextArea rows={2} placeholder="Тайлбар" />
           </Form.Item>
+          <Form.Item name="is_urgent" label="Яаралтай" valuePropName="checked" initialValue={false}>
+            <Switch checkedChildren="Тийм" unCheckedChildren="Үгүй" />
+          </Form.Item>
 
           <div style={{ marginBottom: 8 }}>Захиалгын мөрүүд</div>
-          <Table
-            dataSource={items}
-            columns={itemColumns}
-            pagination={false}
-            scroll={{ x: 800 }}
-            size="small"
-            style={{ marginBottom: 16 }}
-          />
+          <div
+            className="agume-order-lines-compare"
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 20,
+              alignItems: 'flex-start',
+              marginBottom: 16,
+            }}
+          >
+            {showOrderImageBesideLines && orderImagePreviewUrl && (
+              <div
+                className="agume-order-lines-compare-image"
+                style={{
+                  flex: '0 1 340px',
+                  maxWidth: '100%',
+                  position: 'sticky',
+                  top: 16,
+                }}
+              >
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>Оруулсан зураг</div>
+                <div
+                  style={{
+                    borderRadius: 8,
+                    border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                    overflow: 'hidden',
+                    background: 'var(--ant-color-fill-quaternary, #fafafa)',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={orderImagePreviewUrl}
+                    alt="Захиалгын зураг — мөрүүдтэй харьцуулалт"
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      maxHeight: 'min(70vh, 640px)',
+                      objectFit: 'contain',
+                    }}
+                  />
+                </div>
+                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ant-color-text-secondary, #666)' }}>
+                  AI-ийн уншсан мөрүүдийг зурагтай зэрэгцүүлэн шалгана уу
+                </p>
+              </div>
+            )}
+            <div style={{ flex: '1 1 400px', minWidth: 0 }}>
+              <Table
+                dataSource={items}
+                columns={itemColumns}
+                pagination={false}
+                scroll={{ x: 800 }}
+                size="small"
+              />
+            </div>
+          </div>
           <Button type="dashed" onClick={addRow} block icon={<PlusOutlined />} style={{ marginBottom: 16 }}>
             Бараа нэмэх
           </Button>
