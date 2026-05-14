@@ -1,8 +1,15 @@
 import Script from 'next/script';
+import { Noto_Sans } from 'next/font/google';
 import { App } from 'antd';
 import ThemeProvider from './ThemeProvider';
 import './globals.css';
 import './styles/print.css';
+
+const notoSans = Noto_Sans({
+  subsets: ['latin', 'cyrillic'],
+  variable: '--font-noto-sans',
+  display: 'swap',
+});
 
 export default function RootLayout({
   children,
@@ -10,8 +17,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="mn" suppressHydrationWarning>
-      <body>
+    <html lang="mn" className={notoSans.variable} suppressHydrationWarning>
+      <body className={notoSans.variable}>
         <Script
           id="theme-init"
           strategy="beforeInteractive"

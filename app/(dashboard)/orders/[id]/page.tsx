@@ -16,6 +16,7 @@ import {
   Form,
   Select,
   Input,
+  Alert,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -24,17 +25,20 @@ import {
   SwapOutlined,
   DownloadOutlined,
   MailOutlined,
+  EditOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useRouter, useParams, usePathname } from 'next/navigation';
 import { employeesApi, ordersApi, preparationApi } from '@/lib/api';
 import PageHeader from '../../components/PageHeader';
 import { InvoicePdfTemplate, type OrderForPdf } from '../components/InvoicePdfTemplate';
-import { VoucherPdfTemplate } from '../components/VoucherPdfTemplate';
+import { VoucherPdfTemplate, type ExpenditureVoucherOrder } from '../components/VoucherPdfTemplate';
 import { exportElementToPdf } from '../utils/pdfFromHtml';
 import { companySettingsToInvoiceInfo, defaultInvoiceCompany } from '../config/invoiceCompany';
 import { configApi } from '@/lib/api';
 
 const STATUS_COLORS: Record<string, string> = {
+  draft: 'default',
   pending: 'orange',
   processing: 'blue',
   delivering: 'purple',
@@ -43,6 +47,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  draft: 'Ноорог',
   pending: 'Хүлээгдэж буй',
   processing: 'Бэлдэж байна',
   delivering: 'Хүргэлтэнд гарсан',
@@ -52,7 +57,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const ORDER_PROGRESS_STEPS = ['pending', 'processing', 'delivering', 'delivered'] as const;
 
-type PdfType = 'invoice' | 'voucher' | null;
+type PdfType = 'invoice' | null;
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -62,21 +67,26 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [pdfType, setPdfType] = useState<PdfType>(null);
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
+  const [voucherPreviewOpen, setVoucherPreviewOpen] = useState(false);
+  const [voucherPdfLoading, setVoucherPdfLoading] = useState(false);
   const [invoiceCompany, setInvoiceCompany] = useState<ReturnType<typeof companySettingsToInvoiceInfo> | null>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [complaintOpen, setComplaintOpen] = useState(false);
   const [complaintSaving, setComplaintSaving] = useState(false);
   const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletePin, setDeletePin] = useState('');
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [complaintForm] = Form.useForm();
   const pdfContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!invoicePreviewOpen) return;
+    if (!invoicePreviewOpen && !voucherPreviewOpen) return;
     configApi
       .getCompany()
       .then(({ data }) => setInvoiceCompany(companySettingsToInvoiceInfo(data)))
       .catch(() => setInvoiceCompany(defaultInvoiceCompany));
-  }, [invoicePreviewOpen]);
+  }, [invoicePreviewOpen, voucherPreviewOpen]);
 
   const invoiceOrder: OrderForPdf | null = order
     ? {
@@ -115,10 +125,10 @@ export default function OrderDetailPage() {
     const el = pdfContainerRef.current.firstElementChild as HTMLElement | null;
     if (!el) return;
     const orderNumber = String(order.order_number ?? id);
-    const filename = pdfType === 'invoice' ? `invoice_${orderNumber}.pdf` : `voucher_${orderNumber}.pdf`;
+    const filename = `invoice_${orderNumber}.pdf`;
     const run = async () => {
       try {
-        await exportElementToPdf(el, filename);
+        await exportElementToPdf(el, filename, { orientation: 'portrait' });
         message.success('PDF татагдлаа');
       } catch (e) {
         message.error('PDF үүсгэхэд алдаа гарлаа');
@@ -170,6 +180,77 @@ export default function OrderDetailPage() {
     window.print();
   };
 
+  const handleVoucherPdfDownload = async () => {
+    const el = document.getElementById('expense-voucher-print-root');
+    if (!el) {
+      message.error('Баримт олдсонгүй');
+      return;
+    }
+    const orderNumber = String(order?.order_number ?? id);
+    setVoucherPdfLoading(true);
+    try {
+      await exportElementToPdf(el, `voucher_${orderNumber}.pdf`, {
+        orientation: 'landscape',
+        margin: [4, 4, 4, 4],
+      });
+      message.success('PDF татагдлаа');
+    } catch {
+      message.error('PDF үүсгэхэд алдаа гарлаа');
+    } finally {
+      setVoucherPdfLoading(false);
+    }
+  };
+
+  const handleVoucherPrint = () => {
+    const style = document.createElement('style');
+    style.id = 'agume-expense-voucher-print-style';
+    style.textContent = `
+@media print {
+  @page { size: A4 landscape; margin: 6mm; }
+  body * { visibility: hidden !important; }
+  #expense-voucher-print-root, #expense-voucher-print-root * { visibility: visible !important; }
+  #expense-voucher-print-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 297mm !important;
+    max-width: none !important;
+  }
+}`;
+    document.head.appendChild(style);
+    const cleanup = () => {
+      document.getElementById('agume-expense-voucher-print-style')?.remove();
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+  };
+
+  const openDeleteModal = () => {
+    setDeletePin('');
+    setDeleteModalOpen(true);
+  };
+
+  const submitDetailDelete = async () => {
+    const pin = deletePin.trim();
+    if (!pin) {
+      message.warning('PIN оруулна уу');
+      return;
+    }
+    setDeleteSubmitting(true);
+    try {
+      await ordersApi.delete(id, pin);
+      message.success('Захиалга устгагдлаа');
+      setDeleteModalOpen(false);
+      router.push('/orders');
+    } catch (err: unknown) {
+      const d = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(typeof d === 'string' ? d : 'Устгахад алдаа гарлаа');
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  };
+
   if (loading || !order) {
     return (
       <Card loading={loading}>
@@ -192,7 +273,11 @@ export default function OrderDetailPage() {
   const pathname = usePathname();
   const status = String(order.status ?? '');
   const isCancelled = status === 'cancelled';
-  const currentStepIndex = isCancelled ? -1 : ORDER_PROGRESS_STEPS.indexOf(status as (typeof ORDER_PROGRESS_STEPS)[number]);
+  const isDraft = status === 'draft';
+  const disablePdf = isDraft || items.length === 0;
+  const currentStepIndex = isCancelled || isDraft
+    ? -1
+    : ORDER_PROGRESS_STEPS.indexOf(status as (typeof ORDER_PROGRESS_STEPS)[number]);
   const progressSteps = ORDER_PROGRESS_STEPS.map((key, index) => {
     let stepStatus: 'wait' | 'process' | 'finish' | 'error' = 'wait';
     if (isCancelled) {
@@ -208,6 +293,22 @@ export default function OrderDetailPage() {
       key,
     };
   });
+
+  const expenditureVoucherOrder: ExpenditureVoucherOrder = {
+    order_number: order.order_number as string | undefined,
+    order_date: order.order_date as string | undefined,
+    customer_name: order.customer_name as string | undefined,
+    customer_address: order.customer_address as string | undefined,
+    customer_register_number: order.customer_register_number as string | undefined,
+    customer_tax_id: order.customer_tax_id as string | undefined,
+    customer_account_number: order.customer_account_number as string | undefined,
+    customer_code: order.customer_code as string | undefined,
+    note: order.note as string | undefined,
+    created_by_name: order.created_by_name as string | undefined,
+    driver_name: order.driver_name as string | undefined,
+    total_amount: order.total_amount as number | undefined,
+    items: (order.items as ExpenditureVoucherOrder['items']) ?? [],
+  };
 
   return (
     <div className="print-area">
@@ -241,20 +342,18 @@ export default function OrderDetailPage() {
               <Button
                 type="primary"
                 icon={<FilePdfOutlined />}
+                disabled={disablePdf}
                 onClick={() => setInvoicePreviewOpen(true)}
                 style={{ background: '#25671E' }}
               >
                 Нэхэмжлэх
               </Button>
-              <Button
-                icon={<FilePdfOutlined />}
-                onClick={() => setPdfType('voucher')}
-              >
+              <Button icon={<FilePdfOutlined />} disabled={disablePdf} onClick={() => setVoucherPreviewOpen(true)}>
                 Зарлагийн баримт
               </Button>
               <Dropdown
                 menu={{
-                  items: (['pending', 'processing', 'delivering', 'delivered', 'cancelled'] as const).map(
+                  items: (['draft', 'pending', 'processing', 'delivering', 'delivered', 'cancelled'] as const).map(
                     (s) => ({
                       key: s,
                       label: STATUS_LABELS[s],
@@ -265,9 +364,19 @@ export default function OrderDetailPage() {
               >
                 <Button icon={<SwapOutlined />}>Статус солих</Button>
               </Dropdown>
-              <Button onClick={() => setComplaintOpen(true)}>Гомдол бүртгэх</Button>
+              {isDraft && (
+                <Button type="primary" icon={<EditOutlined />} onClick={() => router.push(`/orders/new?draft=${id}`)}>
+                  Ноорог засварлах
+                </Button>
+              )}
+              <Button onClick={() => setComplaintOpen(true)} disabled={isDraft || items.length === 0}>
+                Гомдол бүртгэх
+              </Button>
               <Button icon={<PrinterOutlined />} onClick={handlePrint}>
                 Хэвлэх
+              </Button>
+              <Button danger icon={<DeleteOutlined />} onClick={openDeleteModal}>
+                Устгах
               </Button>
             </Space>
           </div>
@@ -275,6 +384,22 @@ export default function OrderDetailPage() {
       >
         <div className="agume-order-detail-progress no-print" style={{ marginBottom: 24 }}>
           <div className="agume-order-detail-progress-label">Захиалгын явц</div>
+          {isDraft && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Ноорог захиалга"
+              description={
+                <>
+                  Бараа нэмж баталгаажуулах хүртэл бэлтгэлд орохгүй.{' '}
+                  <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => router.push(`/orders/new?draft=${id}`)}>
+                    Энд дарж засварлана уу
+                  </Button>
+                </>
+              }
+            />
+          )}
           <Steps
             current={isCancelled ? -1 : currentStepIndex}
             items={progressSteps.map((s, i) => ({
@@ -296,7 +421,7 @@ export default function OrderDetailPage() {
           <Descriptions.Item label="Хаяг">{String(order.customer_address || '-')}</Descriptions.Item>
           <Descriptions.Item label="Захиалгын огноо">{String(order.order_date)}</Descriptions.Item>
           <Descriptions.Item label="Хүргэлтийн огноо">{String(order.delivery_date || '-')}</Descriptions.Item>
-          <Descriptions.Item label="Оператор">{String(order.operator_name || '-')}</Descriptions.Item>
+          <Descriptions.Item label="Үүсгэсэн ажилтан">{String(order.created_by_name || '-')}</Descriptions.Item>
           <Descriptions.Item label="Жолооч">{String(order.driver_name || '-')}</Descriptions.Item>
           <Descriptions.Item label="Нийт дүн">
             <strong>{Number(order.total_amount).toLocaleString()} ₮</strong>
@@ -434,6 +559,74 @@ export default function OrderDetailPage() {
         </div>
       </Modal>
 
+      <Modal
+        title="Зарлагийн баримт — Урьдчилан харах"
+        open={voucherPreviewOpen}
+        onCancel={() => setVoucherPreviewOpen(false)}
+        width="95%"
+        style={{ maxWidth: 1240 }}
+        footer={[
+          <Button key="close" onClick={() => setVoucherPreviewOpen(false)}>
+            Хаах
+          </Button>,
+          <Button key="print" icon={<PrinterOutlined />} onClick={handleVoucherPrint}>
+            Хэвлэх
+          </Button>,
+          <Button
+            key="pdf"
+            type="primary"
+            icon={<DownloadOutlined />}
+            loading={voucherPdfLoading}
+            onClick={handleVoucherPdfDownload}
+            style={{ background: '#25671E' }}
+          >
+            PDF татах
+          </Button>,
+        ]}
+      >
+        <div
+          style={{
+            overflowX: 'auto',
+            maxHeight: '78vh',
+            padding: 12,
+            backgroundColor: '#f5f5f5',
+            borderRadius: 8,
+          }}
+        >
+          <VoucherPdfTemplate
+            order={expenditureVoucherOrder}
+            company={invoiceCompany ?? defaultInvoiceCompany}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        title="Захиалга устгах"
+        open={deleteModalOpen}
+        okText="Устгах"
+        cancelText="Цуцлах"
+        okButtonProps={{ danger: true, loading: deleteSubmitting }}
+        onOk={submitDetailDelete}
+        onCancel={() => {
+          setDeleteModalOpen(false);
+          setDeletePin('');
+        }}
+        destroyOnClose
+      >
+        <p style={{ marginBottom: 12, color: 'var(--ant-color-text-secondary, #666)' }}>
+          Захиалгын мөрүүд, холбогдсон бэлтгэлийн гомдол, хүргэлтийн асуудлын бүртгэл устна. Буцаах боломжгүй. PIN
+          оруулна уу.
+        </p>
+        <Input.Password
+          placeholder="PIN"
+          value={deletePin}
+          onChange={(e) => setDeletePin(e.target.value)}
+          maxLength={64}
+          autoComplete="off"
+          onPressEnter={submitDetailDelete}
+        />
+      </Modal>
+
       {/* Hidden container for HTML → PDF (off-screen render) */}
       <div
         ref={pdfContainerRef}
@@ -451,18 +644,6 @@ export default function OrderDetailPage() {
           <InvoicePdfTemplate
             order={invoiceOrder}
             company={invoiceCompany ?? defaultInvoiceCompany}
-          />
-        )}
-        {pdfType === 'voucher' && order && (
-          <VoucherPdfTemplate
-            order={{
-              order_number: order.order_number as string,
-              order_date: order.order_date as string,
-              customer_name: order.customer_name as string,
-              driver_name: order.driver_name as string,
-              total_amount: order.total_amount as number,
-              items: (order.items as Record<string, unknown>[]) ?? [],
-            }}
           />
         )}
       </div>

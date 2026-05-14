@@ -66,14 +66,17 @@ export const ordersApi = {
   create: (data: unknown) => api.post('/orders/', data),
   update: (id: number, data: unknown) => api.put(`/orders/${id}/`, data),
   patch: (id: number, data: unknown) => api.patch(`/orders/${id}/`, data),
-  delete: (id: number) => api.delete(`/orders/${id}/`),
+  delete: (id: number, pin: string) =>
+    api.delete(`/orders/${id}/`, { data: { pin } }),
   updateStatus: (id: number, status: string) =>
     api.patch(`/orders/${id}/update_status/`, { status }),
-  createFromImage: (formData: FormData) =>
-    api.post('/orders/create_from_image/', formData, {
+  createFromImage: (formData: FormData, orderId?: number) => {
+    if (orderId != null) formData.append('order_id', String(orderId));
+    return api.post('/orders/create_from_image/', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: AI_ORDER_IMAGE_TIMEOUT_MS,
-    }),
+    });
+  },
   dailyReportExcel: (date: string) =>
     api.get('/orders/daily_report_excel/', { params: { date }, responseType: 'blob' }),
   dailyStats: (date: string) => api.get('/orders/daily_stats/', { params: { date } }),

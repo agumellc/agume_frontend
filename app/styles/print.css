@@ -1,3 +1,7 @@
+/* Order list/detail: hide chrome when printing from the app. */
+/* Зарлагийн баримт A4 landscape + зөвхөн баримт харагдах нь orders/[id]/page.tsx-ийн handleVoucherPrint-д
+   түр style (`agume-expense-voucher-print-style`) оруулж @page болон visibility тохируулна. */
+
 @media print {
   .ant-layout-sider,
   .ant-layout-header,

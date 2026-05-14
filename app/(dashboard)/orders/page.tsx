@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Table,
   Button,
@@ -9,15 +9,17 @@ import {
   Select,
   DatePicker,
   message,
+  Modal,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, FileExcelOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, FileExcelOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useRouter, usePathname } from 'next/navigation';
 import dayjs from 'dayjs';
 import PageHeader from '../components/PageHeader';
 import { ordersApi, customersApi, employeesApi } from '@/lib/api';
 
 const STATUS_OPTIONS = [
+  { value: 'draft', label: 'Ноорог' },
   { value: 'pending', label: 'Хүлээгдэж буй' },
   { value: 'processing', label: 'Бэлдэж байна' },
   { value: 'delivering', label: 'Хүргэлтэнд гарсан' },
@@ -26,6 +28,7 @@ const STATUS_OPTIONS = [
 ] as const;
 
 const STATUS_COLORS: Record<string, string> = {
+  draft: 'default',
   pending: 'orange',
   processing: 'blue',
   delivering: 'purple',
@@ -47,14 +50,19 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const searchRef = useRef(search);
+  searchRef.current = search;
   const [stats, setStats] = useState({
     total_orders: 0,
     total_amount: 0,
     customers_count: 0,
     delivered: 0,
   });
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [deletePin, setDeletePin] = useState('');
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string> = {};
@@ -63,7 +71,8 @@ export default function OrdersPage() {
       if (customerId) params.customer = customerId;
       if (statusFilter) params.status = statusFilter;
       if (driverId) params.driver = driverId;
-      if (search) params.search = search;
+      const q = searchRef.current.trim();
+      if (q) params.search = q;
       const { data } = await ordersApi.list(params);
       setOrders((data.results || data) as OrderRow[]);
     } catch {
@@ -71,9 +80,9 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dateRange, customerId, statusFilter, driverId]);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     const date = dateRange?.[0]?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD');
     try {
       const { data } = await ordersApi.dailyStats(date);
@@ -86,15 +95,42 @@ export default function OrdersPage() {
     } catch {
       // ignore
     }
-  };
+  }, [dateRange]);
 
   useEffect(() => {
     fetchOrders();
-  }, [dateRange, customerId, statusFilter, driverId]);
+  }, [fetchOrders]);
 
   useEffect(() => {
     fetchStats();
-  }, [dateRange]);
+  }, [fetchStats]);
+
+  const openDeleteModal = useCallback((orderId: number) => {
+    setPendingDeleteId(orderId);
+    setDeletePin('');
+    setDeleteModalOpen(true);
+  }, []);
+
+  const submitListDelete = useCallback(async () => {
+    if (pendingDeleteId == null) return;
+    const pin = deletePin.trim();
+    if (!pin) {
+      message.warning('PIN оруулна уу');
+      return;
+    }
+    try {
+      await ordersApi.delete(pendingDeleteId, pin);
+      message.success('Захиалга устгагдлаа');
+      setDeleteModalOpen(false);
+      setPendingDeleteId(null);
+      setDeletePin('');
+      await fetchOrders();
+      await fetchStats();
+    } catch (err: unknown) {
+      const d = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(typeof d === 'string' ? d : 'Устгахад алдаа гарлаа');
+    }
+  }, [pendingDeleteId, deletePin, fetchOrders, fetchStats]);
 
   useEffect(() => {
     customersApi.list().then(({ data }) => setCustomers(data.results || data));
@@ -182,13 +218,13 @@ export default function OrdersPage() {
         render: (v: unknown) => (v ? String(v) : '–'),
       },
       {
-        title: 'Оператор',
-        dataIndex: 'operator_name',
-        key: 'operator_name',
+        title: 'Үүсгэсэн',
+        dataIndex: 'created_by_name',
+        key: 'created_by_name',
         width: 120,
         ellipsis: true,
         sorter: (a, b) =>
-          String(a.operator_name ?? '').localeCompare(String(b.operator_name ?? '')),
+          String(a.created_by_name ?? '').localeCompare(String(b.created_by_name ?? '')),
         sortDirections: ['ascend', 'descend'],
         render: (v: unknown) => (v ? String(v) : '–'),
       },
@@ -231,8 +267,29 @@ export default function OrdersPage() {
         width: 90,
         render: (v: unknown) => (v ? <Tag color="red">Тийм</Tag> : <span>—</span>),
       },
+      {
+        title: '',
+        key: 'actions',
+        width: 52,
+        fixed: 'right' as const,
+        render: (_: unknown, r: OrderRow) => {
+          const oid = Number(r.id);
+          return (
+            <div onClick={(e) => e.stopPropagation()} role="presentation">
+              <Button
+                type="text"
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+                aria-label="Устгах"
+                onClick={() => openDeleteModal(oid)}
+              />
+            </div>
+          );
+        },
+      },
     ],
-    [router]
+    [router, openDeleteModal]
   );
 
   const dataSource = useMemo(
@@ -371,7 +428,7 @@ export default function OrdersPage() {
             pageSizeOptions: ['50', '100', '200'],
             showTotal: (total) => `Нийт ${total}`,
           }}
-          scroll={{ x: 1020, y: 'calc(100vh - 260px)' }}
+          scroll={{ x: 1080, y: 'calc(100vh - 260px)' }}
           className="agume-data-table"
           rowClassName={(_record, index) =>
             index != null && index % 2 === 0 ? 'agume-table-row-even' : 'agume-table-row-odd'
@@ -382,6 +439,32 @@ export default function OrdersPage() {
           })}
         />
       </section>
+      <Modal
+        title="Захиалга устгах"
+        open={deleteModalOpen}
+        okText="Устгах"
+        cancelText="Цуцлах"
+        okButtonProps={{ danger: true }}
+        onOk={submitListDelete}
+        onCancel={() => {
+          setDeleteModalOpen(false);
+          setPendingDeleteId(null);
+          setDeletePin('');
+        }}
+        destroyOnClose
+      >
+        <p style={{ marginBottom: 12, color: 'var(--ant-color-text-secondary, #666)' }}>
+          Мөрүүд, гомдол, хүргэлтийн асуудлын бүртгэл устна. Буцаах боломжгүй. Устгах PIN оруулна уу.
+        </p>
+        <Input.Password
+          placeholder="PIN"
+          value={deletePin}
+          onChange={(e) => setDeletePin(e.target.value)}
+          maxLength={64}
+          autoComplete="off"
+          onPressEnter={submitListDelete}
+        />
+      </Modal>
     </div>
   );
 }
